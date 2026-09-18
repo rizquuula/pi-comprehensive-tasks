@@ -11,6 +11,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import {
   addTask,
+  adoptLegacyTasksFile,
   createTaskFile,
   findTask,
   flatten,
@@ -18,6 +19,7 @@ import {
   progress,
   resolveTasksPath,
   serializeTaskFile,
+  sessionTasksPath,
   setDone,
   TASKS_FILENAME,
   type TaskFile,
@@ -29,13 +31,26 @@ const PLAN_FILENAME = "PLAN.md";
 const WIDGET_ID = "tasks";
 const TASKS_FILE_FLAG = "tasks-file";
 
-function tasksPath(ctx: ExtensionContext, requested?: string | null): string {
-  return resolveTasksPath(ctx.cwd, requested);
+/** The session id, or null when the harness does not expose one. */
+function sessionIdOf(ctx: ExtensionContext): string | null {
+  try {
+    return ctx.sessionManager.getSessionId() ?? null;
+  } catch {
+    return null;
+  }
 }
 
-/** Read the task list, or an empty in-memory file when it does not exist yet. */
+function tasksPath(ctx: ExtensionContext, requested?: string | null): string {
+  return resolveTasksPath(ctx.cwd, { requested, sessionId: sessionIdOf(ctx) });
+}
+
+/** Read this session's task list, or an empty in-memory file when it does not exist yet. */
 function load(ctx: ExtensionContext, requested?: string | null): TaskFile {
   const path = tasksPath(ctx, requested);
+  if (!existsSync(path)) {
+    // A list from an earlier version, or one kept by hand, moves here once.
+    adoptLegacyTasksFile(ctx.cwd, path);
+  }
   if (!existsSync(path)) return createTaskFile(path);
   return parseTaskFile(path, readFileSync(path, "utf-8"));
 }
@@ -86,7 +101,7 @@ function readPlan(ctx: ExtensionContext): string | null {
 export default function (pi: ExtensionAPI) {
   pi.registerFlag(TASKS_FILE_FLAG, {
     type: "string",
-    description: `Path to the task list. Defaults to .pi/${TASKS_FILENAME}, or ${TASKS_FILENAME} when that already exists in the project root.`,
+    description: `Path to the task list. Defaults to .pi/tasks/<session>.md, so two sessions on one project cannot collide.`,
   });
 
   const requestedFile = (): string | undefined => {

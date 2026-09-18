@@ -162,7 +162,20 @@ rebuilding the parsed tree, so the next `findTask` missed what had just been add
 should have produced 7 items produced 3, with no error anywhere. Every mutation now calls
 `reparse`.
 
-**The task list moved to `.pi/TODO.md`** after the build, at the user's request. The plan above
-says `TODO.md` throughout. An existing root `TODO.md` is still honoured so no task list is
-orphaned, and `--tasks-file` overrides both. `resolveTasksPath` in `task-file.ts` holds the rule
-and is covered by six tests.
+**The task list moved twice after the build**, at the user's request. The plan above says
+`TODO.md` throughout.
+
+1. `0.2.0` — `.pi/TODO.md`, keeping the project root clean.
+2. `0.3.0` — `.pi/tasks/<session>.md`. A project worked on by two pi sessions at once had them
+   fighting over one file: the second writer silently dropped the first one's additions. Deriving
+   the path from the session id removes the collision by construction, and resuming a session
+   keeps its id, so the list comes back.
+
+A list from an earlier version, or one kept by hand, is moved into place once rather than
+abandoned — a copy would leave two lists drifting apart. `--tasks-file` opts back into a shared
+list. `resolveTasksPath`, `shortSessionId` and `adoptLegacyTasksFile` hold the rules and are
+covered by fourteen tests.
+
+`PLAN.md` is still shared by every session, so two sessions running `/plan-comprehensively` at
+once still overwrite each other's plan. That is a change to the planning package and is left as a
+decision, not a silent gap: a per-session task list whose plan can be overwritten is half a fix.

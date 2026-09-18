@@ -23,24 +23,26 @@ keeps them apart.
 
 ## Where the file lives
 
-The task list is **`.pi/TODO.md`**. pi's project config directory already holds the
-settings, skills and extensions for a project, so the task list belongs there rather than
-in your source tree.
+**One task list per session: `.pi/tasks/<session>.md`.**
 
-The path is resolved in this order, so nothing is ever orphaned:
+Two pi sessions on one project are two pieces of work in flight. A single shared file means
+the second writer silently drops the first one's additions, so the path is derived from the
+session id instead. Different sessions, different files, no collision by construction.
 
-1. `--tasks-file <path>` on the command line, if you pass one.
-2. `.pi/TODO.md`, if it exists.
-3. `TODO.md` at the project root, if it exists. A project that has always kept it there
-   keeps working — the extension will not quietly start a second, empty list.
-4. Otherwise `.pi/TODO.md` is created.
+Resuming a session (`pi --continue`, `pi -r`) keeps the same id, so you get your list back.
 
 ```bash
-pi --tasks-file TODO.md                 # force the project root
-pi --tasks-file docs/tasks.md           # somewhere else entirely
+pi --tasks-file .pi/TODO.md     # opt back into one shared list
+pi --tasks-file docs/tasks.md   # or anywhere else
 ```
 
-`PLAN.md` stays at the project root. It is reviewed by people, so it is visible on purpose.
+A list left by an earlier version, or kept by hand at `.pi/TODO.md` or `TODO.md`, is **moved**
+into place on first use rather than abandoned. Moving rather than copying matters: a copy
+would leave two lists that quietly drift apart.
+
+`PLAN.md` stays at the project root, and is still shared by every session. If you run
+`/plan-comprehensively` in two sessions at once, the second plan overwrites the first. Scope
+the plan per session too if that becomes a problem — see the planning package.
 
 ## Install
 

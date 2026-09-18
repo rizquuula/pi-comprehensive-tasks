@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addTask,
+  adoptLegacyTasksFile,
   createTaskFile,
   findTask,
   flatten,
@@ -13,7 +14,9 @@ import {
   progress,
   resolveTasksPath,
   serializeTaskFile,
+  sessionTasksPath,
   setDone,
+  shortSessionId,
 } from "../extensions/task-file.ts";
 
 const SAMPLE = `# Tasks
@@ -202,44 +205,102 @@ function touch(dir: string, relative: string): void {
   writeFileSync(join(dir, relative), "# Tasks\n", "utf-8");
 }
 
-test("an explicit path wins over both conventions", () => {
+const SESSION_A = "01a0b21d-e807-72e6-a5c6-676b11bb6c0b";
+const SESSION_B = "01a0b222-d84c-71a7-afc9-ba189ed004a4";
+
+test("two sessions get two files, so they cannot collide", () => {
+  const cwd = scratch();
+  const a = resolveTasksPath(cwd, { sessionId: SESSION_A });
+  const b = resolveTasksPath(cwd, { sessionId: SESSION_B });
+
+  assert.equal(a, join(cwd, ".pi/tasks/01a0b21d.md"));
+  assert.equal(b, join(cwd, ".pi/tasks/01a0b222.md"));
+  assert.notEqual(a, b);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("the same session resolves to the same file every time", () => {
+  const cwd = scratch();
+  assert.equal(
+    resolveTasksPath(cwd, { sessionId: SESSION_A }),
+    resolveTasksPath(cwd, { sessionId: SESSION_A }),
+  );
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("a session id is shortened to eight safe characters", () => {
+  assert.equal(shortSessionId(SESSION_A), "01a0b21d");
+  assert.equal(shortSessionId("a/b:c d"), "abcd");
+  assert.equal(shortSessionId(""), "shared");
+  assert.equal(shortSessionId(null), "shared");
+  assert.equal(shortSessionId(undefined), "shared");
+});
+
+test("an explicit path wins over the session default", () => {
+  const cwd = scratch();
+  assert.equal(
+    resolveTasksPath(cwd, { requested: "notes/TASKS.md", sessionId: SESSION_A }),
+    join(cwd, "notes/TASKS.md"),
+  );
+  assert.equal(
+    resolveTasksPath(cwd, { requested: "/tmp/elsewhere.md", sessionId: SESSION_A }),
+    "/tmp/elsewhere.md",
+  );
+  assert.equal(
+    resolveTasksPath(cwd, { requested: "   ", sessionId: SESSION_A }),
+    join(cwd, ".pi/tasks/01a0b21d.md"),
+  );
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("a list from an earlier version is adopted, not abandoned", () => {
   const cwd = scratch();
   touch(cwd, ".pi/TODO.md");
-  touch(cwd, "TODO.md");
+  const target = resolveTasksPath(cwd, { sessionId: SESSION_A });
 
-  assert.equal(resolveTasksPath(cwd, "notes/TASKS.md"), join(cwd, "notes/TASKS.md"));
-  assert.equal(resolveTasksPath(cwd, "/tmp/elsewhere.md"), "/tmp/elsewhere.md");
-  assert.equal(resolveTasksPath(cwd, "TODO.md"), join(cwd, "TODO.md"));
+  assert.equal(adoptLegacyTasksFile(cwd, target), join(cwd, ".pi/TODO.md"));
+  assert.equal(existsSync(target), true);
+  assert.equal(existsSync(join(cwd, ".pi/TODO.md")), false);
+  assert.equal(readFileSync(target, "utf-8"), "# Tasks\n");
   rmSync(cwd, { recursive: true, force: true });
 });
 
-test("a project with no task list gets .pi/TODO.md", () => {
-  const cwd = scratch();
-  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
-  rmSync(cwd, { recursive: true, force: true });
-});
-
-test("an existing root TODO.md is honoured, so old tasks are not orphaned", () => {
+test("a TODO.md at the project root is adopted too", () => {
   const cwd = scratch();
   touch(cwd, "TODO.md");
-  assert.equal(resolveTasksPath(cwd), join(cwd, "TODO.md"));
+  const target = resolveTasksPath(cwd, { sessionId: SESSION_A });
+
+  assert.equal(adoptLegacyTasksFile(cwd, target), join(cwd, "TODO.md"));
+  assert.equal(existsSync(join(cwd, "TODO.md")), false);
   rmSync(cwd, { recursive: true, force: true });
 });
 
-test(".pi/TODO.md wins once it exists", () => {
+test("adoption never overwrites a list this session already has", () => {
   const cwd = scratch();
   touch(cwd, ".pi/TODO.md");
-  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
+  const target = resolveTasksPath(cwd, { sessionId: SESSION_A });
+  mkdirSync(join(cwd, ".pi/tasks"), { recursive: true });
+  writeFileSync(target, "# Tasks\n\n- [ ] mine\n", "utf-8");
 
-  touch(cwd, "TODO.md");
-  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
+  assert.equal(adoptLegacyTasksFile(cwd, target), null);
+  assert.match(readFileSync(target, "utf-8"), /mine/);
+  assert.equal(existsSync(join(cwd, ".pi/TODO.md")), true);
   rmSync(cwd, { recursive: true, force: true });
 });
 
-test("an empty or blank explicit path falls back to the convention", () => {
+test("the second session to start adopts nothing, and gets an empty list", () => {
   const cwd = scratch();
-  assert.equal(resolveTasksPath(cwd, ""), join(cwd, ".pi/TODO.md"));
-  assert.equal(resolveTasksPath(cwd, "   "), join(cwd, ".pi/TODO.md"));
-  assert.equal(resolveTasksPath(cwd, null), join(cwd, ".pi/TODO.md"));
+  touch(cwd, ".pi/TODO.md");
+  adoptLegacyTasksFile(cwd, resolveTasksPath(cwd, { sessionId: SESSION_A }));
+
+  const b = resolveTasksPath(cwd, { sessionId: SESSION_B });
+  assert.equal(adoptLegacyTasksFile(cwd, b), null);
+  assert.equal(existsSync(b), false);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("nothing to adopt is not an error", () => {
+  const cwd = scratch();
+  assert.equal(adoptLegacyTasksFile(cwd, resolveTasksPath(cwd, { sessionId: SESSION_A })), null);
   rmSync(cwd, { recursive: true, force: true });
 });

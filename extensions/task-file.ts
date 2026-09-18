@@ -12,8 +12,8 @@
  *     - [x] toggle a child <!-- plan:§8#2 -->
  */
 
-import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 
 export interface Task {
   text: string;
@@ -39,25 +39,71 @@ const TAG_RE = /<!--\s*plan:([^\s>]+)\s*-->/;
 const INDENT_PER_LEVEL = 2;
 
 export const TASKS_FILENAME = "TODO.md";
-/** pi's project config directory. New task lists go here, not in the project root. */
+/** pi's project config directory. Task lists live here, not in the project root. */
 export const TASKS_DIR = ".pi";
+/** One directory per project, one file per session inside it. */
+export const TASKS_SUBDIR = "tasks";
+
+/** Short, filesystem-safe form of a session id. Eight characters is plenty to collide-free. */
+export function shortSessionId(sessionId: string | null | undefined): string {
+  const cleaned = (sessionId ?? "").replace(/[^A-Za-z0-9]/g, "");
+  return cleaned.slice(0, 8) || "shared";
+}
+
+export interface TasksPathOptions {
+  /** An explicit path, from `--tasks-file`. Wins over everything. */
+  requested?: string | null;
+  /** The current pi session. Each session gets its own list. */
+  sessionId?: string | null;
+}
+
+/** `.pi/tasks/<id>.md` for this session. */
+export function sessionTasksPath(cwd: string, sessionId?: string | null): string {
+  return join(cwd, TASKS_DIR, TASKS_SUBDIR, `${shortSessionId(sessionId)}.md`);
+}
+
+/** A list a previous version wrote, or one a human keeps by hand. */
+export function legacyTasksPath(cwd: string): string | null {
+  const inConfig = join(cwd, TASKS_DIR, TASKS_FILENAME);
+  if (existsSync(inConfig)) return inConfig;
+  const atRoot = join(cwd, TASKS_FILENAME);
+  if (existsSync(atRoot)) return atRoot;
+  return null;
+}
 
 /**
- * Where the task list lives.
+ * Where this session's task list lives.
  *
- * An explicit path wins. Otherwise a file that already exists wins, so a project that
- * has always kept `TODO.md` at its root keeps working instead of quietly starting a
- * second, empty list in `.pi/`. Only a project with neither gets the new default.
+ * Task lists are per session. Two pi sessions on one project are two pieces of work in
+ * flight, and a shared file means the second writer silently drops the first one's
+ * additions. An explicit `--tasks-file` opts back into a shared list when that is what
+ * you want.
+ *
+ * A list left by an earlier version, or kept by hand at the project root, is moved into
+ * place once rather than abandoned. Moving beats copying: a copy would leave two lists
+ * that drift apart.
  */
-export function resolveTasksPath(cwd: string, requested?: string | null): string {
-  const asked = (requested ?? "").trim();
+export function resolveTasksPath(cwd: string, options: TasksPathOptions = {}): string {
+  const asked = (options.requested ?? "").trim();
   if (asked !== "") return isAbsolute(asked) ? asked : join(cwd, asked);
+  return sessionTasksPath(cwd, options.sessionId);
+}
 
-  const inConfig = join(cwd, TASKS_DIR, TASKS_FILENAME);
-  const atRoot = join(cwd, TASKS_FILENAME);
-  if (existsSync(inConfig)) return inConfig;
-  if (existsSync(atRoot)) return atRoot;
-  return inConfig;
+/**
+ * Move a legacy list to this session's path, if there is one and we have not claimed it.
+ * Returns the path it moved from, or null when there was nothing to do.
+ */
+export function adoptLegacyTasksFile(cwd: string, target: string): string | null {
+  if (existsSync(target)) return null;
+  const legacy = legacyTasksPath(cwd);
+  if (!legacy) return null;
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    renameSync(legacy, target);
+    return legacy;
+  } catch {
+    return null;
+  }
 }
 
 /** Tabs become two spaces so depth is measured from spaces alone. */
