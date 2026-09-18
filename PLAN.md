@@ -4,8 +4,8 @@
 A tree of tasks in `TODO.md`, seeded from a plan's slices and cycles, kept honest by the agent as it works, and collapsed as branches finish.
 
 **1a. Success criteria (testable).**
-A plan with 2 slices and 5 cycles seeds a 2-level tree of 2 parents and 5 children, each child filed under the slice that owns its files · verified by `tests/seed.test.ts` case `tree mirrors the plan`.
-A branch whose children are all done renders as one dimmed line `[x] Slice A · 3/3` instead of four · verified by `tests/render.test.ts` case `a finished branch collapses`.
+`/tasks seed` on a plan with N cycles produces exactly N children tagged `§8#1…§8#N`, filed under the §9 parents, and running it twice still leaves N · verified by `tests/seed.test.ts` case `seeding twice changes nothing`.
+A branch whose cycles are all done renders as one line carrying its count (`[x] Slice B · 2/2` when the slice is also ticked) · verified by `tests/render.test.ts` case `a finished branch collapses`.
 
 ### 2. Non-goals
 No dependency on `pi-comprehensive-planning`. This package works standalone.
@@ -141,3 +141,23 @@ Let planning offer to seed tasks itself, so the user runs one command instead of
 A `--from-plan <path>` flag for `/tasks seed` when the plan is not at the default path.
 Let a user expand a collapsed branch on demand, if the display-only version proves annoying.
 Report the exact-name filter anomaly in the pi package manager upstream (found while building the planning package).
+
+## Notes from implementation
+
+Two places where the build differed from the plan above. Both are deliberate.
+
+**The collapse glyph is the task's own state, not a summary of its children.** §1a originally
+expected `[x] Slice A · 3/3` whenever the children were done. The built version renders the
+parent's own checkbox, so a slice whose cycles are all finished but which is itself unticked
+reads `[ ] Slice A · 3/3`. Reporting it as finished would hide the one thing left to do, which
+is the failure this package exists to prevent. Covered by `render.test.ts` case `the glyph is
+the task's own state`.
+
+**`npm pack` ships 8 files, not 9.** Cycle 10 counted `.gitignore`, which npm never publishes
+from a `files` allowlist. The tarball is `LICENSE`, `README.md`, `package.json`, four files
+under `extensions/`, and one under `skills/`.
+
+One bug the tests caught during the build, worth remembering: `addTask` mutated `lines` without
+rebuilding the parsed tree, so the next `findTask` missed what had just been added. A seed that
+should have produced 7 items produced 3, with no error anywhere. Every mutation now calls
+`reparse`.
