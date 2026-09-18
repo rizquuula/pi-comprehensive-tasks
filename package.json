@@ -1,0 +1,55 @@
+{
+  "name": "pi-comprehensive-tasks",
+  "version": "0.1.0",
+  "description": "A task tree in TODO.md for the pi coding agent, seeded from a pi-comprehensive-planning plan and collapsed as branches finish.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "tasks",
+    "todo",
+    "checklist",
+    "planning",
+    "extension",
+    "skill"
+  ],
+  "license": "MIT",
+  "author": "Rizquuula",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rizquuula/pi-comprehensive-tasks.git"
+  },
+  "homepage": "https://github.com/rizquuula/pi-comprehensive-tasks#readme",
+  "bugs": {
+    "url": "https://github.com/rizquuula/pi-comprehensive-tasks/issues"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ]
+}
