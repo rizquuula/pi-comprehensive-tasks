@@ -21,6 +21,27 @@ keeps them apart.
   - [ ] wiring only <!-- plan:§8#9 -->
 ```
 
+## Where the file lives
+
+The task list is **`.pi/TODO.md`**. pi's project config directory already holds the
+settings, skills and extensions for a project, so the task list belongs there rather than
+in your source tree.
+
+The path is resolved in this order, so nothing is ever orphaned:
+
+1. `--tasks-file <path>` on the command line, if you pass one.
+2. `.pi/TODO.md`, if it exists.
+3. `TODO.md` at the project root, if it exists. A project that has always kept it there
+   keeps working — the extension will not quietly start a second, empty list.
+4. Otherwise `.pi/TODO.md` is created.
+
+```bash
+pi --tasks-file TODO.md                 # force the project root
+pi --tasks-file docs/tasks.md           # somewhere else entirely
+```
+
+`PLAN.md` stays at the project root. It is reviewed by people, so it is visible on purpose.
+
 ## Install
 
 ```bash

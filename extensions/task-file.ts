@@ -12,6 +12,9 @@
  *     - [x] toggle a child <!-- plan:§8#2 -->
  */
 
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
+
 export interface Task {
   text: string;
   done: boolean;
@@ -34,6 +37,28 @@ export interface TaskFile {
 const ITEM_RE = /^([ \t]*)-[ \t]+\[([ xX])\][ \t]*(.*)$/;
 const TAG_RE = /<!--\s*plan:([^\s>]+)\s*-->/;
 const INDENT_PER_LEVEL = 2;
+
+export const TASKS_FILENAME = "TODO.md";
+/** pi's project config directory. New task lists go here, not in the project root. */
+export const TASKS_DIR = ".pi";
+
+/**
+ * Where the task list lives.
+ *
+ * An explicit path wins. Otherwise a file that already exists wins, so a project that
+ * has always kept `TODO.md` at its root keeps working instead of quietly starting a
+ * second, empty list in `.pi/`. Only a project with neither gets the new default.
+ */
+export function resolveTasksPath(cwd: string, requested?: string | null): string {
+  const asked = (requested ?? "").trim();
+  if (asked !== "") return isAbsolute(asked) ? asked : join(cwd, asked);
+
+  const inConfig = join(cwd, TASKS_DIR, TASKS_FILENAME);
+  const atRoot = join(cwd, TASKS_FILENAME);
+  if (existsSync(inConfig)) return inConfig;
+  if (existsSync(atRoot)) return atRoot;
+  return inConfig;
+}
 
 /** Tabs become two spaces so depth is measured from spaces alone. */
 function expandTabs(line: string): string {

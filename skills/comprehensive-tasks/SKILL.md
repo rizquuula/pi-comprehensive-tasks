@@ -8,6 +8,14 @@ description: Keep TODO.md honest while implementing a plan. Use when working thr
 `TODO.md` is the live state of the work. `PLAN.md` is the intent.
 The plan is written once and reviewed. The task list changes as reality does.
 
+## Where it lives
+
+The task list is `.pi/TODO.md` in the project. A project that already keeps `TODO.md` at its
+root keeps using that one, so existing tasks are never orphaned. `/tasks` and the tools
+resolve the path themselves — read the file the widget names rather than assuming a location.
+
+`PLAN.md` stays at the project root: it is reviewed by people, so it is visible on purpose.
+
 ## The shape
 
 ```markdown
@@ -64,3 +72,4 @@ better than a silent one.
 | File a task under its slice | Dump everything at the top level |
 | Keep the `<!-- plan:… -->` tag when editing | Strip the tag and lose the trail |
 | Leave prose outside the list alone | Rewrite the whole file to change one box |
+| Edit `.pi/TODO.md` | Assume the list is at the project root |

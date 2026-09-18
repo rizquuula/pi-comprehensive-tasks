@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   addTask,
   createTaskFile,
@@ -8,6 +11,7 @@ import {
   parseTaskFile,
   presentRefs,
   progress,
+  resolveTasksPath,
   serializeTaskFile,
   setDone,
 } from "../extensions/task-file.ts";
@@ -185,4 +189,57 @@ test("a file with no tasks parses to an empty tree and survives a round trip", (
   const file = parse(raw);
   assert.equal(file.tasks.length, 0);
   assert.equal(serializeTaskFile(file), raw);
+});
+
+// ---------------------------------------------------------------- where the file lives
+
+function scratch(): string {
+  return mkdtempSync(join(tmpdir(), "tasks-path-"));
+}
+
+function touch(dir: string, relative: string): void {
+  mkdirSync(join(dir, relative.split("/").slice(0, -1).join("/")), { recursive: true });
+  writeFileSync(join(dir, relative), "# Tasks\n", "utf-8");
+}
+
+test("an explicit path wins over both conventions", () => {
+  const cwd = scratch();
+  touch(cwd, ".pi/TODO.md");
+  touch(cwd, "TODO.md");
+
+  assert.equal(resolveTasksPath(cwd, "notes/TASKS.md"), join(cwd, "notes/TASKS.md"));
+  assert.equal(resolveTasksPath(cwd, "/tmp/elsewhere.md"), "/tmp/elsewhere.md");
+  assert.equal(resolveTasksPath(cwd, "TODO.md"), join(cwd, "TODO.md"));
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("a project with no task list gets .pi/TODO.md", () => {
+  const cwd = scratch();
+  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("an existing root TODO.md is honoured, so old tasks are not orphaned", () => {
+  const cwd = scratch();
+  touch(cwd, "TODO.md");
+  assert.equal(resolveTasksPath(cwd), join(cwd, "TODO.md"));
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test(".pi/TODO.md wins once it exists", () => {
+  const cwd = scratch();
+  touch(cwd, ".pi/TODO.md");
+  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
+
+  touch(cwd, "TODO.md");
+  assert.equal(resolveTasksPath(cwd), join(cwd, ".pi/TODO.md"));
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("an empty or blank explicit path falls back to the convention", () => {
+  const cwd = scratch();
+  assert.equal(resolveTasksPath(cwd, ""), join(cwd, ".pi/TODO.md"));
+  assert.equal(resolveTasksPath(cwd, "   "), join(cwd, ".pi/TODO.md"));
+  assert.equal(resolveTasksPath(cwd, null), join(cwd, ".pi/TODO.md"));
+  rmSync(cwd, { recursive: true, force: true });
 });

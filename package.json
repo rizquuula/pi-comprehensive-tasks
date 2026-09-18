@@ -1,7 +1,7 @@
 {
   "name": "pi-comprehensive-tasks",
-  "version": "0.1.0",
-  "description": "A task tree in TODO.md for the pi coding agent, seeded from a pi-comprehensive-planning plan and collapsed as branches finish.",
+  "version": "0.2.0",
+  "description": "A task tree in .pi/TODO.md for the pi coding agent, seeded from a pi-comprehensive-planning plan and collapsed as branches finish.",
   "keywords": [
     "pi-package",
     "pi",

@@ -5,8 +5,8 @@
  * collapses branches as they finish. It reads PLAN.md exactly once, at seed time.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -16,37 +16,41 @@ import {
   flatten,
   parseTaskFile,
   progress,
+  resolveTasksPath,
   serializeTaskFile,
   setDone,
+  TASKS_FILENAME,
   type TaskFile,
 } from "./task-file.ts";
 import { applySeed, seedFromPlan, seedWarning } from "./seed.ts";
 import { renderWidget } from "./render.ts";
 
-const TASKS_FILENAME = "TODO.md";
 const PLAN_FILENAME = "PLAN.md";
 const WIDGET_ID = "tasks";
+const TASKS_FILE_FLAG = "tasks-file";
 
-function tasksPath(ctx: ExtensionContext): string {
-  return join(ctx.cwd, TASKS_FILENAME);
+function tasksPath(ctx: ExtensionContext, requested?: string | null): string {
+  return resolveTasksPath(ctx.cwd, requested);
 }
 
-/** Read TODO.md, or an empty in-memory file when it does not exist yet. */
-function load(ctx: ExtensionContext): TaskFile {
-  const path = tasksPath(ctx);
+/** Read the task list, or an empty in-memory file when it does not exist yet. */
+function load(ctx: ExtensionContext, requested?: string | null): TaskFile {
+  const path = tasksPath(ctx, requested);
   if (!existsSync(path)) return createTaskFile(path);
   return parseTaskFile(path, readFileSync(path, "utf-8"));
 }
 
 function save(ctx: ExtensionContext, file: TaskFile): void {
   const text = serializeTaskFile(file);
+  // The default location is a directory deep, so it may not exist yet.
+  mkdirSync(dirname(file.path), { recursive: true });
   // Always end the file with a newline, even when the last line was just inserted.
-  writeFileSync(tasksPath(ctx), text.endsWith("\n") ? text : `${text}\n`, "utf-8");
+  writeFileSync(file.path, text.endsWith("\n") ? text : `${text}\n`, "utf-8");
 }
 
-function refresh(ctx: ExtensionContext): void {
+function refresh(ctx: ExtensionContext, requested?: string | null): void {
   if (!ctx.hasUI) return;
-  const file = load(ctx);
+  const file = load(ctx, requested);
   const lines = renderWidget(file, {
     dim: (text) => ctx.ui.theme.fg("dim", text),
     accent: (text) => ctx.ui.theme.fg("accent", text),
@@ -70,7 +74,8 @@ function numberedList(file: TaskFile): string {
 
 function summary(file: TaskFile): string {
   const { done, total } = progress(file);
-  return total === 0 ? `${TASKS_FILENAME} · empty` : `${TASKS_FILENAME} · ${done}/${total} done`;
+  const name = basename(file.path);
+  return total === 0 ? `${name} · empty` : `${name} · ${done}/${total} done`;
 }
 
 function readPlan(ctx: ExtensionContext): string | null {
@@ -79,14 +84,24 @@ function readPlan(ctx: ExtensionContext): string | null {
 }
 
 export default function (pi: ExtensionAPI) {
+  pi.registerFlag(TASKS_FILE_FLAG, {
+    type: "string",
+    description: `Path to the task list. Defaults to .pi/${TASKS_FILENAME}, or ${TASKS_FILENAME} when that already exists in the project root.`,
+  });
+
+  const requestedFile = (): string | undefined => {
+    const value = pi.getFlag(TASKS_FILE_FLAG);
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
+  };
+
   pi.on("session_start", async (_event, ctx) => {
-    refresh(ctx);
+    refresh(ctx, requestedFile());
   });
 
   // Keep the widget in step when the file is edited by hand or by another tool.
   pi.on("tool_result", async (event, ctx) => {
     const path = (event.input as { path?: string }).path;
-    if (path && path.endsWith(TASKS_FILENAME)) refresh(ctx);
+    if (path && basename(path) === TASKS_FILENAME) refresh(ctx, requestedFile());
   });
 
   // ------------------------------------------------------------------ tools
@@ -103,7 +118,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
 
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const file = load(ctx);
+      const file = load(ctx, requestedFile());
       return {
         content: [{ type: "text" as const, text: `${summary(file)}\n\n${numberedList(file)}` }],
         details: { done: progress(file).done, total: progress(file).total },
@@ -131,7 +146,7 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const file = load(ctx);
+      const file = load(ctx, requestedFile());
       const result = addTask(file, {
         text: params.text,
         planRef: params.planRef ?? null,
@@ -146,7 +161,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       save(ctx, file);
-      refresh(ctx);
+      refresh(ctx, requestedFile());
       return {
         content: [{ type: "text" as const, text: `Added. ${summary(file)}\n\n${numberedList(file)}` }],
         details: { added: true },
@@ -169,7 +184,7 @@ export default function (pi: ExtensionAPI) {
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const file = load(ctx);
+      const file = load(ctx, requestedFile());
       const done = params.done ?? true;
 
       // Resolve before mutating, so the reply can name the task it changed.
@@ -188,7 +203,7 @@ export default function (pi: ExtensionAPI) {
 
       setDone(file, params.task, done);
       save(ctx, file);
-      refresh(ctx);
+      refresh(ctx, requestedFile());
       return {
         content: [
           {
@@ -205,7 +220,7 @@ export default function (pi: ExtensionAPI) {
 
   async function togglePicker(ctx: ExtensionContext): Promise<void> {
     for (;;) {
-      const file = load(ctx);
+      const file = load(ctx, requestedFile());
       const all = flatten(file);
       if (all.length === 0) {
         ctx.ui.notify("No tasks yet. Run /tasks seed, or /tasks add <text>.", "info");
@@ -222,7 +237,7 @@ export default function (pi: ExtensionAPI) {
       if (!number) return;
       setDone(file, number, !all[Number(number) - 1]!.done);
       save(ctx, file);
-      refresh(ctx);
+      refresh(ctx, requestedFile());
     }
   }
 
@@ -244,10 +259,10 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(warning, "warning");
           return;
         }
-        const file = load(ctx);
+        const file = load(ctx, requestedFile());
         const result = applySeed(file, seedFromPlan(plan));
         save(ctx, file);
-        refresh(ctx);
+        refresh(ctx, requestedFile());
         ctx.ui.notify(
           result.added > 0
             ? `Seeded ${result.added} task(s) from ${PLAN_FILENAME}, skipped ${result.skipped}. ${summary(file)}`
@@ -262,14 +277,14 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("Usage: /tasks add <text>", "error");
           return;
         }
-        const file = load(ctx);
+        const file = load(ctx, requestedFile());
         const result = addTask(file, { text: remainder });
         if (!result.added) {
           ctx.ui.notify(`Not added: ${result.reason}.`, "error");
           return;
         }
         save(ctx, file);
-        refresh(ctx);
+        refresh(ctx, requestedFile());
         ctx.ui.notify(`Added. ${summary(file)}`, "info");
         return;
       }
@@ -279,13 +294,13 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`Usage: /tasks ${verb} <ref|number>`, "error");
           return;
         }
-        const file = load(ctx);
+        const file = load(ctx, requestedFile());
         if (!setDone(file, remainder, verb === "done")) {
           ctx.ui.notify(`No task matches "${remainder}". Run /tasks to see the numbers.`, "error");
           return;
         }
         save(ctx, file);
-        refresh(ctx);
+        refresh(ctx, requestedFile());
         ctx.ui.notify(`${verb === "done" ? "Completed" : "Reopened"}. ${summary(file)}`, "info");
         return;
       }
@@ -296,7 +311,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (!ctx.hasUI) {
-        const file = load(ctx);
+        const file = load(ctx, requestedFile());
         ctx.ui.notify(`${summary(file)}\n${numberedList(file)}`, "info");
         return;
       }

@@ -161,3 +161,8 @@ One bug the tests caught during the build, worth remembering: `addTask` mutated 
 rebuilding the parsed tree, so the next `findTask` missed what had just been added. A seed that
 should have produced 7 items produced 3, with no error anywhere. Every mutation now calls
 `reparse`.
+
+**The task list moved to `.pi/TODO.md`** after the build, at the user's request. The plan above
+says `TODO.md` throughout. An existing root `TODO.md` is still honoured so no task list is
+orphaned, and `--tasks-file` overrides both. `resolveTasksPath` in `task-file.ts` holds the rule
+and is covered by six tests.
